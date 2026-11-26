@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -96,10 +97,11 @@ public class SubmissionController {
         result.put("submittedAt", submittedAt);
         result.put("late", submittedAt.toLocalDate().isAfter(deadline));
         if (row.get("raw_points") != null) {
-            double raw = ((BigDecimal) row.get("raw_points")).doubleValue();
-            double max = ((BigDecimal) row.get("max_points")).doubleValue();
-            result.put("rawPoints", raw);
-            result.put("grade", Math.round(raw / max * 20 * 10) / 10.0);
+            BigDecimal raw = (BigDecimal) row.get("raw_points");
+            BigDecimal max = (BigDecimal) row.get("max_points");
+            long daysLate = ChronoUnit.DAYS.between(deadline, submittedAt.toLocalDate());
+            result.put("rawPoints", raw.doubleValue());
+            result.put("grade", GradeReport.penalizedGrade(raw, max, daysLate).doubleValue());
             result.put("feedback", row.get("feedback"));
         }
         return ResponseEntity.ok(result);
@@ -130,12 +132,13 @@ public class SubmissionController {
         jdbcTemplate.update("UPDATE submission SET raw_points = ?, feedback = ?, graded_at = now() WHERE id = ?",
                 points, feedback, id);
 
-        // grade out of 20
-        double grade = Math.round(points / max * 20 * 10) / 10.0;
-
         LocalDate deadline = ((java.sql.Date) row.get("deadline")).toLocalDate();
         LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
         boolean late = submittedAt.toLocalDate().isAfter(deadline);
+        long daysLate = ChronoUnit.DAYS.between(deadline, submittedAt.toLocalDate());
+
+        double grade = GradeReport.penalizedGrade(BigDecimal.valueOf(points), BigDecimal.valueOf(max), daysLate)
+                .doubleValue();
 
         // notify the student by email
         String fullName = (String) row.get("full_name");
