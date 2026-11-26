@@ -10,12 +10,14 @@ INSERT INTO student (id, reference, full_name, email, phone, cohort) VALUES (4, 
 INSERT INTO student (id, reference, full_name, email, phone, cohort) VALUES (5, 'STD24005', 'Emma', 'emma@etu.kilasy.test', '+261 34 00 000 05', 'L3-B') ON CONFLICT (id) DO NOTHING;
 INSERT INTO student (id, reference, full_name, email, phone, cohort) VALUES (6, 'STD24006', 'Felix', 'felix@etu.kilasy.test', '+261 34 00 000 06', 'L3-B') ON CONFLICT (id) DO NOTHING;
 
--- Exercises (ids 1 to 5)
+-- Exercises (ids 1 to 7)
 INSERT INTO exercise (id, teacher_id, title, description, max_points, deadline) VALUES (1, 1, 'Tri à bulles', 'Implémenter le tri à bulles sur un tableau d''entiers, puis mesurer le nombre d''échanges.', 20, '2026-11-10') ON CONFLICT (id) DO NOTHING;
 INSERT INTO exercise (id, teacher_id, title, description, max_points, deadline) VALUES (2, 1, 'Pile et file', 'Implémenter une pile et une file à partir d''une liste chaînée.', 10, '2026-11-14') ON CONFLICT (id) DO NOTHING;
 INSERT INTO exercise (id, teacher_id, title, description, max_points, deadline) VALUES (3, 2, 'Requêtes SQL avec jointures', 'Écrire les douze requêtes demandées sur la base des bibliothèques municipales.', 40, '2026-11-17') ON CONFLICT (id) DO NOTHING;
 INSERT INTO exercise (id, teacher_id, title, description, max_points, deadline) VALUES (4, 2, 'API REST de réservation', 'Exposer une API REST de réservation de terrains de sport.', 20, '2027-01-15') ON CONFLICT (id) DO NOTHING;
 INSERT INTO exercise (id, teacher_id, title, description, max_points, deadline) VALUES (5, 1, 'FizzBuzz piloté par les tests', 'Écrire FizzBuzz en commençant par les tests.', 20, '2027-02-01') ON CONFLICT (id) DO NOTHING;
+INSERT INTO exercise (id, teacher_id, title, description, max_points, deadline, duration_minutes) VALUES (6, 1, 'Tri rapide minuté', 'Exercice sans échéance : 30 minutes à partir de l''ouverture.', 20, NULL, 30) ON CONFLICT (id) DO NOTHING;
+INSERT INTO exercise (id, teacher_id, title, description, max_points, deadline, duration_minutes) VALUES (7, 2, 'Jointures minutées', 'Exercice avec échéance et durée : 45 minutes à partir de l''ouverture.', 20, '2026-11-20', 45) ON CONFLICT (id) DO NOTHING;
 
 -- Submissions: Bubble sort (deadline 10/11, max 20)
 INSERT INTO submission (id, exercise_id, student_id, content, submitted_at, raw_points, feedback, graded_at) VALUES (1, 1, 1, 'public class BubbleSort { /* ... */ }', '2026-11-09 18:00:00', 16, 'Correct, pense à arrêter la boucle quand le tableau est trié.', '2026-11-20 09:00:00') ON CONFLICT (exercise_id, student_id) DO NOTHING;

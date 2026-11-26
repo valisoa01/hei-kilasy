@@ -1,6 +1,8 @@
 package hei.school;
 
+import java.sql.Timestamp;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +31,9 @@ public class ExerciseController {
             e.setTitle(rs.getString("title"));
             e.setDescription(rs.getString("description"));
             e.setMaxPoints(rs.getDouble("max_points"));
-            e.setDeadline(rs.getDate("deadline").toLocalDate());
+            java.sql.Date deadline = rs.getDate("deadline");
+            e.setDeadline(deadline == null ? null : deadline.toLocalDate());
+            e.setDurationMinutes((Integer) rs.getObject("duration_minutes"));
             return e;
         });
     }
@@ -43,7 +47,9 @@ public class ExerciseController {
             e.setTitle(rs.getString("title"));
             e.setDescription(rs.getString("description"));
             e.setMaxPoints(rs.getDouble("max_points"));
-            e.setDeadline(rs.getDate("deadline").toLocalDate());
+            java.sql.Date deadline = rs.getDate("deadline");
+            e.setDeadline(deadline == null ? null : deadline.toLocalDate());
+            e.setDurationMinutes((Integer) rs.getObject("duration_minutes"));
             return e;
         }, id);
         if (found.isEmpty()) {
@@ -58,17 +64,26 @@ public class ExerciseController {
         if (title == null || title.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Le titre est obligatoire"));
         }
-        if (body.get("deadline") == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "L'échéance est obligatoire (format AAAA-MM-JJ)"));
+        LocalDate deadline = null;
+        if (body.get("deadline") != null) {
+            try {
+                deadline = LocalDate.parse((String) body.get("deadline"));
+            } catch (Exception ex) {
+                return ResponseEntity.badRequest().body(Map.of("error", "L'échéance doit être au format AAAA-MM-JJ"));
+            }
+            if (deadline.isBefore(LocalDate.now())) {
+                return ResponseEntity.badRequest().body(Map.of("error", "L'échéance doit être dans le futur"));
+            }
         }
-        LocalDate deadline;
-        try {
-            deadline = LocalDate.parse((String) body.get("deadline"));
-        } catch (Exception ex) {
-            return ResponseEntity.badRequest().body(Map.of("error", "L'échéance est obligatoire (format AAAA-MM-JJ)"));
+        Integer durationMinutes = null;
+        if (body.get("durationMinutes") != null) {
+            durationMinutes = ((Number) body.get("durationMinutes")).intValue();
+            if (durationMinutes <= 0) {
+                return ResponseEntity.badRequest().body(Map.of("error", "La durée doit être positive"));
+            }
         }
-        if (deadline.isBefore(LocalDate.now())) {
-            return ResponseEntity.badRequest().body(Map.of("error", "L'échéance doit être dans le futur"));
+        if (deadline == null && durationMinutes == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Il faut une échéance ou une durée en minutes"));
         }
         double maxPoints = 20;
         if (body.get("maxPoints") != null) {
@@ -84,8 +99,9 @@ public class ExerciseController {
         }
 
         jdbcTemplate.update(
-                "INSERT INTO exercise (teacher_id, title, description, max_points, deadline) VALUES (?, ?, ?, ?, ?)",
-                teacherId, title, body.get("description"), maxPoints, java.sql.Date.valueOf(deadline));
+                "INSERT INTO exercise (teacher_id, title, description, max_points, deadline, duration_minutes) VALUES (?, ?, ?, ?, ?, ?)",
+                teacherId, title, body.get("description"), maxPoints,
+                deadline == null ? null : java.sql.Date.valueOf(deadline), durationMinutes);
         Long id = jdbcTemplate.queryForObject("SELECT max(id) FROM exercise", Long.class);
 
         Map<String, Object> result = new HashMap<>();
@@ -93,7 +109,56 @@ public class ExerciseController {
         result.put("title", title);
         result.put("maxPoints", maxPoints);
         result.put("deadline", deadline);
+        result.put("durationMinutes", durationMinutes);
         System.out.println("Nouvel exercice créé : " + title + " (id " + id + ")");
+        return ResponseEntity.status(201).body(result);
+    }
+
+    @PostMapping("/exercises/{id}/start")
+    public ResponseEntity<?> start(@PathVariable long id, @RequestBody Map<String, Object> body) {
+        if (body.get("studentId") == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "studentId est obligatoire"));
+        }
+        long studentId = ((Number) body.get("studentId")).longValue();
+
+        List<Exercise> exercises = jdbcTemplate.query("SELECT * FROM exercise WHERE id = ?", (rs, i) -> {
+            Exercise e = new Exercise();
+            e.setDurationMinutes((Integer) rs.getObject("duration_minutes"));
+            return e;
+        }, id);
+        if (exercises.isEmpty()) {
+            return ResponseEntity.status(404).body(Map.of("error", "Exercice introuvable"));
+        }
+        Integer durationMinutes = exercises.get(0).getDurationMinutes();
+        if (durationMinutes == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Cet exercice n'est pas minuté"));
+        }
+        Integer studentCount = jdbcTemplate.queryForObject("SELECT count(*) FROM student WHERE id = ?", Integer.class, studentId);
+        if (studentCount == null || studentCount == 0) {
+            return ResponseEntity.status(404).body(Map.of("error", "Étudiant introuvable"));
+        }
+
+        List<Timestamp> existing = jdbcTemplate.queryForList(
+                "SELECT started_at FROM exercise_start WHERE exercise_id = ? AND student_id = ?",
+                Timestamp.class, id, studentId);
+        if (!existing.isEmpty()) {
+            LocalDateTime startedAt = existing.get(0).toLocalDateTime();
+            Map<String, Object> result = new HashMap<>();
+            result.put("startedAt", startedAt);
+            result.put("deadline", startedAt.plusMinutes(durationMinutes));
+            result.put("durationMinutes", durationMinutes);
+            result.put("message", "Le décompte avait déjà démarré");
+            return ResponseEntity.ok(result);
+        }
+
+        LocalDateTime startedAt = LocalDateTime.now();
+        jdbcTemplate.update("INSERT INTO exercise_start (exercise_id, student_id, started_at) VALUES (?, ?, ?)",
+                id, studentId, Timestamp.valueOf(startedAt));
+        Map<String, Object> result = new HashMap<>();
+        result.put("startedAt", startedAt);
+        result.put("deadline", startedAt.plusMinutes(durationMinutes));
+        result.put("durationMinutes", durationMinutes);
+        result.put("message", "Décompte démarré");
         return ResponseEntity.status(201).body(result);
     }
 }
