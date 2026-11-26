@@ -42,45 +42,58 @@ public class GradeReport {
         Map<String, Object> student = students.get(0);
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT e.title, e.deadline, e.max_points, s.id AS submission_id, s.submitted_at, s.raw_points, s.feedback "
+                "SELECT e.title, e.deadline, e.duration_minutes, e.max_points, s.id AS submission_id, "
+                        + "s.submitted_at, s.raw_points, s.feedback, es.started_at "
                         + "FROM exercise e LEFT JOIN submission s ON s.exercise_id = e.id AND s.student_id = ? "
-                        + "ORDER BY e.deadline",
-                studentId);
+                        + "LEFT JOIN exercise_start es ON es.exercise_id = e.id AND es.student_id = ? "
+                        + "ORDER BY e.deadline NULLS LAST, e.id",
+                studentId, studentId);
 
         List<Map<String, Object>> lines = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         int graded = 0;
         for (Map<String, Object> row : rows) {
             Map<String, Object> line = new LinkedHashMap<>();
-            LocalDate deadline = ((Date) row.get("deadline")).toLocalDate();
+            Date deadlineDate = (Date) row.get("deadline");
+            LocalDate deadline = deadlineDate == null ? null : deadlineDate.toLocalDate();
+            Integer durationMinutes = (Integer) row.get("duration_minutes");
+            Timestamp startRow = (Timestamp) row.get("started_at");
+            LocalDateTime startedAt = startRow == null ? null : startRow.toLocalDateTime();
+            LocalDateTime submittedAt = null;
             line.put("exercise", row.get("title"));
             line.put("deadline", deadline);
 
             if (row.get("submission_id") == null) {
-                if (deadline.isBefore(LocalDate.now())) {
+                if (deadline != null && deadline.isBefore(LocalDate.now())) {
                     line.put("status", "NON RENDU");
                 } else {
                     line.put("status", "À RENDRE");
                 }
                 line.put("grade", null);
             } else {
-                LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
+                submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
                 line.put("submittedAt", submittedAt);
-                line.put("late", submittedAt.toLocalDate().isAfter(deadline));
+                line.put("late", deadline != null && submittedAt.toLocalDate().isAfter(deadline));
                 if (row.get("raw_points") == null) {
                     line.put("status", "EN ATTENTE DE CORRECTION");
                     line.put("grade", null);
                 } else {
                     BigDecimal raw = (BigDecimal) row.get("raw_points");
                     BigDecimal max = (BigDecimal) row.get("max_points");
-                    BigDecimal grade = penalizedGrade(raw, max,
-                            ChronoUnit.DAYS.between(deadline, submittedAt.toLocalDate()));
+                    long daysLate = deadline == null ? 0 : ChronoUnit.DAYS.between(deadline, submittedAt.toLocalDate());
+                    BigDecimal grade = penalizedGrade(raw, max, daysLate);
                     line.put("status", "CORRIGÉ");
                     line.put("grade", grade);
                     line.put("feedback", row.get("feedback"));
                     total = total.add(grade);
                     graded++;
                 }
+            }
+            if (durationMinutes != null) {
+                line.put("durationMinutes", durationMinutes);
+                line.put("startedAt", startedAt);
+                line.put("usedMinutes", startedAt == null || submittedAt == null
+                        ? null : Math.max(0, ChronoUnit.MINUTES.between(startedAt, submittedAt)));
             }
             lines.add(line);
         }

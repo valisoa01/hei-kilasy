@@ -62,9 +62,26 @@ public class SubmissionController {
             return ResponseEntity.status(409).body(Map.of("error", "Cet étudiant a déjà soumis cet exercice"));
         }
 
-        LocalDate deadline = ((java.sql.Date) exercises.get(0).get("deadline")).toLocalDate();
+        java.sql.Date deadlineDate = (java.sql.Date) exercises.get(0).get("deadline");
+        LocalDate deadline = deadlineDate == null ? null : deadlineDate.toLocalDate();
         LocalDateTime now = LocalDateTime.now();
-        boolean late = now.toLocalDate().isAfter(deadline);
+        boolean late = deadline != null && now.toLocalDate().isAfter(deadline);
+
+        Integer durationMinutes = (Integer) exercises.get(0).get("duration_minutes");
+        if (durationMinutes != null) {
+            List<Timestamp> starts = jdbcTemplate.queryForList(
+                    "SELECT started_at FROM exercise_start WHERE exercise_id = ? AND student_id = ?",
+                    Timestamp.class, id, studentId);
+            if (starts.isEmpty()) {
+                return ResponseEntity.unprocessableEntity()
+                        .body(Map.of("error", "Vous devez d'abord ouvrir l'exercice avec POST /exercises/" + id + "/start"));
+            }
+            LocalDateTime limit = starts.get(0).toLocalDateTime().plusMinutes(durationMinutes);
+            if (now.isAfter(limit)) {
+                return ResponseEntity.unprocessableEntity()
+                        .body(Map.of("error", "La durée de " + durationMinutes + " minutes est écoulée : soumission refusée"));
+            }
+        }
 
         jdbcTemplate.update(
                 "INSERT INTO submission (exercise_id, student_id, content, repo_url, submitted_at) VALUES (?, ?, ?, ?, ?)",
@@ -88,7 +105,8 @@ public class SubmissionController {
             return ResponseEntity.status(404).body(Map.of("error", "Soumission introuvable"));
         }
         Map<String, Object> row = rows.get(0);
-        LocalDate deadline = ((java.sql.Date) row.get("deadline")).toLocalDate();
+        java.sql.Date deadlineDate = (java.sql.Date) row.get("deadline");
+        LocalDate deadline = deadlineDate == null ? null : deadlineDate.toLocalDate();
         LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
 
         Map<String, Object> result = new HashMap<>();
@@ -98,11 +116,11 @@ public class SubmissionController {
         result.put("content", row.get("content"));
         result.put("repoUrl", row.get("repo_url"));
         result.put("submittedAt", submittedAt);
-        result.put("late", submittedAt.toLocalDate().isAfter(deadline));
+        result.put("late", deadline != null && submittedAt.toLocalDate().isAfter(deadline));
         if (row.get("raw_points") != null) {
             BigDecimal raw = (BigDecimal) row.get("raw_points");
             BigDecimal max = (BigDecimal) row.get("max_points");
-            long daysLate = ChronoUnit.DAYS.between(deadline, submittedAt.toLocalDate());
+            long daysLate = deadline == null ? 0 : ChronoUnit.DAYS.between(deadline, submittedAt.toLocalDate());
             result.put("rawPoints", raw.doubleValue());
             result.put("grade", GradeReport.penalizedGrade(raw, max, daysLate).doubleValue());
             result.put("feedback", row.get("feedback"));
@@ -135,10 +153,11 @@ public class SubmissionController {
         jdbcTemplate.update("UPDATE submission SET raw_points = ?, feedback = ?, graded_at = now() WHERE id = ?",
                 points, feedback, id);
 
-        LocalDate deadline = ((java.sql.Date) row.get("deadline")).toLocalDate();
+        java.sql.Date deadlineDate = (java.sql.Date) row.get("deadline");
+        LocalDate deadline = deadlineDate == null ? null : deadlineDate.toLocalDate();
         LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
-        boolean late = submittedAt.toLocalDate().isAfter(deadline);
-        long daysLate = ChronoUnit.DAYS.between(deadline, submittedAt.toLocalDate());
+        boolean late = deadline != null && submittedAt.toLocalDate().isAfter(deadline);
+        long daysLate = deadline == null ? 0 : ChronoUnit.DAYS.between(deadline, submittedAt.toLocalDate());
 
         double grade = GradeReport.penalizedGrade(BigDecimal.valueOf(points), BigDecimal.valueOf(max), daysLate)
                 .doubleValue();

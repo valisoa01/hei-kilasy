@@ -23,7 +23,8 @@ public class CsvExport {
     public ResponseEntity<String> export() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT st.reference, st.full_name, st.email, st.cohort, e.title, e.deadline, s.submitted_at, s.raw_points, e.max_points, "
-                        + "(s.submitted_at::date - e.deadline) AS days_late "
+                        + "(s.submitted_at::date > e.deadline) AS late, "
+                        + "COALESCE(s.submitted_at::date - e.deadline, 0) AS days_late "
                         + "FROM submission s JOIN student st ON st.id = s.student_id JOIN exercise e ON e.id = s.exercise_id "
                         + "ORDER BY st.full_name, e.deadline");
 
